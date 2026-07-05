@@ -50,8 +50,16 @@ print(f"Matches since 1995 (played): {len(results)}")
 
 avg_home = results["home_score"].mean()
 avg_away = results["away_score"].mean()
-avg_home_neutral = results[results["neutral"] == True]["home_score"].mean() if results["neutral"].sum() > 0 else avg_home
-avg_away_neutral = results[results["neutral"] == True]["away_score"].mean() if results["neutral"].sum() > 0 else avg_away
+avg_home_neutral = (
+    results[results["neutral"] == True]["home_score"].mean()
+    if results["neutral"].sum() > 0
+    else avg_home
+)
+avg_away_neutral = (
+    results[results["neutral"] == True]["away_score"].mean()
+    if results["neutral"].sum() > 0
+    else avg_away
+)
 
 tournament_map = {
     "FIFA World Cup": "world_cup",
@@ -149,8 +157,12 @@ for date, group in results.groupby("date", sort=True):
         default_a_gf = avg_away_neutral if is_neutral else avg_away
         default_a_ga = avg_home_neutral if is_neutral else avg_home
 
-        h_gf, h_ga, h_pts, h_n, h_gd, h_tr = rolling_features(h_team, True, default_h_gf, default_h_ga)
-        a_gf, a_ga, a_pts, a_n, a_gd, a_tr = rolling_features(a_team, False, default_a_gf, default_a_ga)
+        h_gf, h_ga, h_pts, h_n, h_gd, h_tr = rolling_features(
+            h_team, True, default_h_gf, default_h_ga
+        )
+        a_gf, a_ga, a_pts, a_n, a_gd, a_tr = rolling_features(
+            a_team, False, default_a_gf, default_a_ga
+        )
 
         h_fp = fifa_pts.get(h_team, 1300)
         a_fp = fifa_pts.get(a_team, 1300)
@@ -170,23 +182,23 @@ for date, group in results.groupby("date", sort=True):
 
         # HOME feature vector
         home_feats = [
-            h_gf,    # home attack strength
-            h_ga,    # home defense weakness
-            h_pts,   # home points per game
-            h_gd,    # home goal difference
-            h_n,     # home matches in window
-            h_tr,    # home form trend
-            a_gf,    # away attack strength
-            a_ga,    # away defense weakness
-            a_pts,   # away points per game
-            a_gd,    # away goal difference
-            a_n,     # away matches in window
-            h_fp,    # home FIFA points
-            a_fp,    # away FIFA points
-            fp_ratio, # FIFA points ratio
-            h_r,     # home FIFA rank
-            a_r,     # away FIFA rank
-            rank_diff, # rank difference (positive = home better ranked)
+            h_gf,  # home attack strength
+            h_ga,  # home defense weakness
+            h_pts,  # home points per game
+            h_gd,  # home goal difference
+            h_n,  # home matches in window
+            h_tr,  # home form trend
+            a_gf,  # away attack strength
+            a_ga,  # away defense weakness
+            a_pts,  # away points per game
+            a_gd,  # away goal difference
+            a_n,  # away matches in window
+            h_fp,  # home FIFA points
+            a_fp,  # away FIFA points
+            fp_ratio,  # FIFA points ratio
+            h_r,  # home FIFA rank
+            a_r,  # away FIFA rank
+            rank_diff,  # rank difference (positive = home better ranked)
             is_neutral_int,
             is_wc,
             is_major,

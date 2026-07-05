@@ -1,16 +1,17 @@
 import sys
+
+from predict import WorldCupPredictor, pretty_print
 from wc2026_api import (
-    get_matches,
-    get_teams,
-    get_groups,
-    get_upcoming_matches,
-    get_finished_matches,
-    get_knockout_matches,
     KO_STAGES,
     STAGE_MAP,
     Match,
+    get_finished_matches,
+    get_groups,
+    get_knockout_matches,
+    get_matches,
+    get_teams,
+    get_upcoming_matches,
 )
-from predict import WorldCupPredictor, pretty_print
 
 
 def predict_match(predictor, match: Match):
@@ -29,9 +30,9 @@ def show_upcoming(predictor):
         print("  No upcoming matches found.")
         return
     matches.sort(key=lambda m: m.local_date or "")
-    print(f"\n  {'='*55}")
+    print(f"\n  {'=' * 55}")
     print(f"  UPCOMING MATCHES ({len(matches)})")
-    print(f"  {'='*55}\n")
+    print(f"  {'=' * 55}\n")
     for m in matches:
         stage_str = f"[{m.stage_name}]" if m.stage != "group" else ""
         print(f"  {m.home_team:25s} vs {m.away_team:25s}  {stage_str}")
@@ -46,9 +47,9 @@ def show_results(predictor):
         print("  No finished matches found.")
         return
     matches.sort(key=lambda m: m.local_date or "", reverse=True)
-    print(f"\n  {'='*55}")
+    print(f"\n  {'=' * 55}")
     print(f"  FINISHED MATCHES ({len(matches)})")
-    print(f"  {'='*55}\n")
+    print(f"  {'=' * 55}\n")
     for m in matches[:20]:
         stage_str = f"[{m.stage_name}]" if m.stage != "group" else ""
         score = f"{m.home_score} - {m.away_score}" if m.home_score is not None else "?"
@@ -63,16 +64,16 @@ def show_standings():
     if not groups:
         print("  No standings data available.")
         return
-    print(f"\n  {'='*55}")
+    print(f"\n  {'=' * 55}")
     print(f"  GROUP STANDINGS")
-    print(f"  {'='*55}\n")
+    print(f"  {'=' * 55}\n")
     for group_name in sorted(groups.keys()):
         print(f"  Group {group_name}")
-        print(f"  {'Team':25s} {'P':3s} {'W':3s} {'D':3s} {'L':3s} {'GF':3s} {'GA':3s} {'GD':4s} {'Pts':3s}")
-        print(f"  {'-'*48}")
-        standings = sorted(
-            groups[group_name], key=lambda x: x["pts"], reverse=True
+        print(
+            f"  {'Team':25s} {'P':3s} {'W':3s} {'D':3s} {'L':3s} {'GF':3s} {'GA':3s} {'GD':4s} {'Pts':3s}"
         )
+        print(f"  {'-' * 48}")
+        standings = sorted(groups[group_name], key=lambda x: x["pts"], reverse=True)
         for t in standings:
             name = teams.get(t["team_id"], t["team_id"])
             print(
@@ -92,11 +93,13 @@ def show_knockout_bracket(predictor):
         print("  No knockout matches yet.")
         return
     stage_order = ["r32", "r16", "qf", "sf", "third", "final"]
-    ko_matches.sort(key=lambda m: stage_order.index(m.stage) if m.stage in stage_order else 99)
+    ko_matches.sort(
+        key=lambda m: stage_order.index(m.stage) if m.stage in stage_order else 99
+    )
 
-    print(f"\n  {'='*55}")
+    print(f"\n  {'=' * 55}")
     print(f"  KNOCKOUT BRACKET")
-    print(f"  {'='*55}\n")
+    print(f"  {'=' * 55}\n")
 
     for stage in stage_order:
         stage_matches = [m for m in ko_matches if m.stage == stage]
@@ -109,7 +112,9 @@ def show_knockout_bracket(predictor):
                 print()
                 continue
             if m.finished and m.home_score is not None:
-                print(f"  {m.home_team:25s} {m.home_score}-{m.away_score}  {m.away_team:25s}")
+                print(
+                    f"  {m.home_team:25s} {m.home_score}-{m.away_score}  {m.away_team:25s}"
+                )
             else:
                 pred = predict_match(predictor, m)
                 h = pred["home_team"]
@@ -175,7 +180,13 @@ def interactive_api(predictor):
             if len(parts) == 2:
                 home = parts[0].strip()
                 away = parts[1].strip()
-                result = predictor.predict(home, away, neutral=True, tournament="FIFA World Cup", is_knockout=is_ko)
+                result = predictor.predict(
+                    home,
+                    away,
+                    neutral=True,
+                    tournament="FIFA World Cup",
+                    is_knockout=is_ko,
+                )
                 pretty_print(result)
             else:
                 print("  Usage: predict <home> vs <away>")
@@ -211,7 +222,9 @@ def main():
         is_ko = "--knockout" in sys.argv
         home = sys.argv[2]
         away = sys.argv[3]
-        result = predictor.predict(home, away, neutral=True, tournament="FIFA World Cup", is_knockout=is_ko)
+        result = predictor.predict(
+            home, away, neutral=True, tournament="FIFA World Cup", is_knockout=is_ko
+        )
         pretty_print(result)
         return
     if cmd in ("--interactive", "-i"):
