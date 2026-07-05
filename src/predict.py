@@ -40,18 +40,22 @@ class WorldCupPredictor:
             return matches[0]
         return name
 
-    def _team_features(self, team):
+    def _team_features(self, team, is_home=True, is_neutral=False):
         form = self.team_form.get(team)
         if form:
-            return (form["gf_avg"], form["ga_avg"], form["pts_avg"], form["n_matches"])
-        return (
-            self.metadata["avg_home_goals"],
-            self.metadata["avg_away_goals"],
-            1.0,
-            0,
-        )
+            gd = form.get("gd_avg", 0.0)
+            return (form["gf_avg"], form["ga_avg"], form["pts_avg"], form["n_matches"], gd, 0.0)
+        if is_neutral:
+            avg_h = self.metadata.get("avg_home_goals_neutral", self.metadata["avg_home_goals"])
+            avg_a = self.metadata.get("avg_away_goals_neutral", self.metadata["avg_away_goals"])
+        else:
+            avg_h = self.metadata["avg_home_goals"]
+            avg_a = self.metadata["avg_away_goals"]
+        gf = avg_h if is_home else avg_a
+        ga = avg_a if is_home else avg_h
+        return (gf, ga, 1.0, 0, 0.0, 1.0)
 
-    def predict(self, home_team, away_team, neutral=False, tournament="FIFA World Cup"):
+    def predict(self, home_team, away_team, neutral=False, tournament="FIFA World Cup", is_knockout=False):
         h_team = self._fuzzy_match(home_team)
         a_team = self._fuzzy_match(away_team)
 
@@ -60,8 +64,11 @@ class WorldCupPredictor:
         h_r = float(self.fifa_rank.get(h_team, 100))
         a_r = float(self.fifa_rank.get(a_team, 100))
 
-        h_gf, h_ga, h_pts, h_n = self._team_features(h_team)
-        a_gf, a_ga, a_pts, a_n = self._team_features(a_team)
+        fp_ratio = h_fp / max(a_fp, 1)
+        rank_diff = a_r - h_r
+
+        h_gf, h_ga, h_pts, h_n, h_gd, h_tr = self._team_features(h_team, True, neutral)
+        a_gf, a_ga, a_pts, a_n, a_gd, a_tr = self._team_features(a_team, False, neutral)
 
         major_tourns = {
             "FIFA World Cup",
@@ -88,46 +95,24 @@ class WorldCupPredictor:
         home_feats = np.array(
             [
                 [
-                    h_gf,
-                    h_ga,
-                    h_pts,
-                    h_n,
-                    a_gf,
-                    a_ga,
-                    a_pts,
-                    a_n,
-                    h_fp,
-                    a_fp,
-                    h_r,
-                    a_r,
+                    h_gf, h_ga, h_pts, h_gd, h_n, h_tr,
+                    a_gf, a_ga, a_pts, a_gd, a_n,
+                    h_fp, a_fp, fp_ratio,
+                    h_r, a_r, rank_diff,
                     int(neutral),
-                    is_wc,
-                    is_major,
-                    is_qual,
-                    is_friendly,
+                    is_wc, is_major, is_qual, is_friendly,
                 ]
             ]
         )
         away_feats = np.array(
             [
                 [
-                    a_gf,
-                    a_ga,
-                    a_pts,
-                    a_n,
-                    h_gf,
-                    h_ga,
-                    h_pts,
-                    h_n,
-                    a_fp,
-                    h_fp,
-                    a_r,
-                    h_r,
+                    a_gf, a_ga, a_pts, a_gd, a_n, a_tr,
+                    h_gf, h_ga, h_pts, h_gd, h_n,
+                    a_fp, h_fp, 1.0 / max(fp_ratio, 0.01),
+                    a_r, h_r, -rank_diff,
                     int(neutral),
-                    is_wc,
-                    is_major,
-                    is_qual,
-                    is_friendly,
+                    is_wc, is_major, is_qual, is_friendly,
                 ]
             ]
         )
@@ -135,9 +120,9 @@ class WorldCupPredictor:
         exp_home = self.home_model.predict(home_feats)[0]
         exp_away = self.away_model.predict(away_feats)[0]
 
-        return self._score_probs(exp_home, exp_away, h_team, a_team)
+        return self._score_probs(exp_home, exp_away, h_team, a_team, is_knockout=is_knockout)
 
-    def _score_probs(self, lam_h, lam_a, h_team, a_team):
+    def _score_probs(self, lam_h, lam_a, h_team, a_team, is_knockout=False):
         max_goals = 8
         probs = np.zeros((max_goals + 1, max_goals + 1))
         for i in range(max_goals + 1):
@@ -152,6 +137,55 @@ class WorldCupPredictor:
             probs * (np.arange(max_goals + 1)[:, None] < np.arange(max_goals + 1))
         )
         draw = 1 - win_h - win_a
+
+        if is_knockout:
+            total = win_h + win_a
+            if total > 0:
+                win_h_adj = win_h / total
+                win_a_adj = win_a / total
+            else:
+                win_h_adj = win_a_adj = 0.5
+            win_probabilities = {
+                h_team: round(win_h_adj * 100, 1),
+                a_team: round(win_a_adj * 100, 1),
+            }
+
+            ko_probs = probs.copy()
+            np.fill_diagonal(ko_probs, 0)
+            ko_probs /= ko_probs.sum()
+
+            best_idx = np.unravel_index(ko_probs.argmax(), ko_probs.shape)
+            best_score = (int(best_idx[0]), int(best_idx[1]))
+            best_prob = float(ko_probs[best_idx])
+
+            top5_idx = np.argsort(ko_probs.ravel())[-5:][::-1]
+            top5 = []
+            for idx in top5_idx:
+                i, j = np.unravel_index(idx, ko_probs.shape)
+                top5.append(
+                    {
+                        "score": f"{h_team} {i} : {j} {a_team}",
+                        "probability": float(ko_probs[i][j]) * 100,
+                    }
+                )
+
+            result = {
+                "home_team": h_team,
+                "away_team": a_team,
+                "expected_goals": {
+                    h_team: round(lam_h, 2),
+                    a_team: round(lam_a, 2),
+                },
+                "most_likely_score": {
+                    "score": f"{h_team} {best_score[0]} : {best_score[1]} {a_team}",
+                    "probability": round(best_prob * 100, 1),
+                },
+                "win_probabilities": win_probabilities,
+                "top_5_scores": top5,
+                "is_knockout": True,
+                "note": "Draw eliminated for knockout match. Win probabilities normalized.",
+            }
+            return result
 
         best_idx = np.unravel_index(probs.argmax(), probs.shape)
         best_score = (int(best_idx[0]), int(best_idx[1]))
@@ -194,11 +228,13 @@ class WorldCupPredictor:
 
 def pretty_print(result):
     print()
+    label = "KNOCKOUT PREDICTION" if result.get("is_knockout") else "PREDICTION"
     print(f"{'=' * 55}")
     w = result["most_likely_score"]["score"]
     p = result["most_likely_score"]["probability"]
     print(f"  {w}")
     print(f"  (Probability: {p}%)")
+    print(f"  [{label}]")
     print(f"{'=' * 55}")
     print()
     h = result["home_team"]
@@ -236,6 +272,10 @@ def interactive(predictor):
             for t in teams:
                 print(f"    {t}")
             continue
+        is_ko = inp.startswith("ko:") or " --knockout" in inp
+        if inp.startswith("ko:"):
+            inp = inp[3:].strip()
+        inp = inp.replace(" --knockout", "").strip()
         parts = re.split(r"\s+vs\s+|\s+v\.\s+|\s{2,}", inp)
         if len(parts) >= 2:
             home = parts[0].strip()
@@ -247,7 +287,7 @@ def interactive(predictor):
             else:
                 print("  Usage: <home_team> vs <away_team>")
                 continue
-        result = predictor.predict(home, away)
+        result = predictor.predict(home, away, is_knockout=is_ko)
         pretty_print(result)
 
 
@@ -270,7 +310,7 @@ def main():
     if len(sys.argv) < 3:
         print("Usage:")
         print(
-            "  python predict.py <home_team> <away_team> [--neutral] [--tournament NAME]"
+            "  python predict.py <home_team> <away_team> [--neutral] [--tournament NAME] [--knockout]"
         )
         print("  python predict.py --interactive")
         print("  python predict.py --teams [query]")
@@ -281,10 +321,12 @@ def main():
         print(
             '  python src/predict.py "South Korea" Germany --tournament "FIFA World Cup"'
         )
+        print("  python src/predict.py England France --knockout")
         print()
         return
 
     neutral = "--neutral" in sys.argv
+    is_knockout = "--knockout" in sys.argv
 
     tournament = "FIFA World Cup"
     if "--tournament" in sys.argv:
@@ -300,7 +342,7 @@ def main():
 
     home_team, away_team = args[0], args[1]
     result = predictor.predict(
-        home_team, away_team, neutral=neutral, tournament=tournament
+        home_team, away_team, neutral=neutral, tournament=tournament, is_knockout=is_knockout
     )
     pretty_print(result)
 
